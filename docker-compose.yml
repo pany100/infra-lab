@@ -2,7 +2,8 @@ services:
   api:
     build: .
     environment:
-      DB_HOST: db
+      DB_PRIMARY_HOST: db-primary
+      DB_REPLICA_HOST: db-replica
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
@@ -10,7 +11,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
-      - db
+      - db-primary
+      - db-replica
       - redis
     deploy:
       replicas: 3
@@ -24,7 +26,7 @@ services:
     depends_on:
       - api
 
-  db:
+  db-primary:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -33,7 +35,32 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_primary_data:/var/lib/postgresql/data
+      - ./postgres/primary/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/primary/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./postgres/primary/init-replication.sh:/docker-entrypoint-initdb.d/init-replication.sh:ro
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c hba_file=/etc/postgresql/pg_hba.conf
+
+  db-replica:
+    image: postgres:16-alpine
+    environment:
+      PGUSER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_replica_data:/var/lib/postgresql/data
+      - ./postgres/replica/setup-replica.sh:/setup-replica.sh:ro
+    depends_on:
+      - db-primary
+    entrypoint: >
+      bash -c "
+      /setup-replica.sh &&
+      exec docker-entrypoint.sh postgres
+      "
 
   redis:
     image: redis:7-alpine
@@ -41,4 +68,5 @@ services:
       - "6379:6379"
 
 volumes:
-  db_data:
+  db_primary_data:
+  db_replica_data:
