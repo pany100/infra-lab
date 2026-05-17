@@ -3,7 +3,7 @@ services:
     build: .
     environment:
       DB_PRIMARY_HOST: db-primary
-      DB_REPLICA_HOST: db-replica
+      DB_REPLICA_HOST: haproxy
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
@@ -12,7 +12,7 @@ services:
       REDIS_PORT: 6379
     depends_on:
       - db-primary
-      - db-replica
+      - haproxy
       - redis
     deploy:
       replicas: 3
@@ -25,6 +25,18 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "5434:5432"
+      - "8404:8404"
+    depends_on:
+      - db-replica-1
+      - db-replica-2
+      - db-replica-3
 
   db-primary:
     image: postgres:16-alpine
@@ -44,7 +56,7 @@ services:
       -c config_file=/etc/postgresql/postgresql.conf
       -c hba_file=/etc/postgresql/pg_hba.conf
 
-  db-replica:
+  db-replica-1:
     image: postgres:16-alpine
     environment:
       PGUSER: ${POSTGRES_USER}
@@ -52,7 +64,43 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - db_replica_data:/var/lib/postgresql/data
+      - db_replica_1_data:/var/lib/postgresql/data
+      - ./postgres/replica/setup-replica.sh:/setup-replica.sh:ro
+    depends_on:
+      - db-primary
+    entrypoint: >
+      bash -c "
+      /setup-replica.sh &&
+      exec docker-entrypoint.sh postgres
+      "
+
+  db-replica-2:
+    image: postgres:16-alpine
+    environment:
+      PGUSER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5435:5432"
+    volumes:
+      - db_replica_2_data:/var/lib/postgresql/data
+      - ./postgres/replica/setup-replica.sh:/setup-replica.sh:ro
+    depends_on:
+      - db-primary
+    entrypoint: >
+      bash -c "
+      /setup-replica.sh &&
+      exec docker-entrypoint.sh postgres
+      "
+
+  db-replica-3:
+    image: postgres:16-alpine
+    environment:
+      PGUSER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5436:5432"
+    volumes:
+      - db_replica_3_data:/var/lib/postgresql/data
       - ./postgres/replica/setup-replica.sh:/setup-replica.sh:ro
     depends_on:
       - db-primary
@@ -69,4 +117,6 @@ services:
 
 volumes:
   db_primary_data:
-  db_replica_data:
+  db_replica_1_data:
+  db_replica_2_data:
+  db_replica_3_data:
